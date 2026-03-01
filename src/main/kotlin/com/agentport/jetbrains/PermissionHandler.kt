@@ -10,7 +10,7 @@ class PermissionHandler(private val project: Project) {
         toolCall: SessionUpdate.ToolCallUpdate,
         permissions: List<PermissionOption>,
     ): RequestPermissionResponse {
-        val chosen = permissions.firstOrNull { it.kind == "allow_once" } ?: permissions.first()
+        val chosen = permissions.firstOrNull { it.kind.toString() == "allow_once" } ?: permissions.first()
         return RequestPermissionResponse(RequestPermissionOutcome.Selected(chosen.optionId), null)
     }
 }
