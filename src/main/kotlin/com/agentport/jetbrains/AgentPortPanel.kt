@@ -262,12 +262,12 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         background = rowBg
         val kit = HTMLEditorKit()
         kit.styleSheet.apply {
-            addRule("body{font-family:sans-serif;font-size:13px;margin:0;padding:0;color:${fgHex()};line-height:1.5}")
+            addRule("body{font-family:sans-serif;font-size:13px;margin:0;padding:0;color:${fgHex()}}")
             addRule("p{margin:0 0 6px 0}")
             addRule("ul,ol{margin:4px 0 4px 20px;padding:0}")
             addRule("li{margin:2px 0}")
-            addRule("pre{background:${hex(codeBg)};padding:10px 12px;margin:6px 0;white-space:pre-wrap;font-family:monospace;font-size:12px;border-radius:4px}")
-            addRule("code{font-family:monospace;font-size:12px;background:${hex(codeBg)};padding:1px 4px;border-radius:2px}")
+            addRule("pre{background:${hex(codeBg)};padding:10px 12px;margin:6px 0;white-space:pre-wrap;font-family:monospace;font-size:12px}")
+            addRule("code{font-family:monospace;font-size:12px;background:${hex(codeBg)};padding:1px 4px}")
             addRule("pre code{background:transparent;padding:0}")
             addRule("blockquote{border-left:3px solid ${hex(mutedColor)};margin:4px 0;padding-left:8px;color:${hex(mutedColor)}}")
             addRule("b,strong{font-weight:bold}")
@@ -408,7 +408,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun buildStreamHtml(): String = buildString {
-        append("<html><body style='font-family:sans-serif;font-size:13px;color:${fgHex()};line-height:1.5;margin:0;padding:0'>")
+        append("<html><body style='font-family:sans-serif;font-size:13px;color:${fgHex()};margin:0;padding:0'>")
         // Tool calls
         for ((title, kind) in toolItems) {
             append("<div style='color:${hex(mutedColor)};font-size:12px;margin:2px 0'>${kindIcon(kind)}&nbsp;${esc(title)}</div>")
