@@ -50,7 +50,10 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     init {
         setContent(buildLayout())
         refreshAgentList()
+        // Add listener AFTER refreshAgentList so initial population doesn't trigger reconnect
         agentSelector.addActionListener { reconnect() }
+        // Connect to whichever agent is pre-selected
+        reconnect()
     }
 
     private fun buildLayout(): JPanel = JPanel(BorderLayout()).apply {
@@ -70,7 +73,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun refreshAgentList() {
-        val settings = project.service<PluginSettings>()
+        val settings = service<PluginSettings>()
         val agents = AgentRegistry.detectAvailable()
         agentSelector.removeAllItems()
         agents.forEach { agentSelector.addItem(it) }
@@ -111,6 +114,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun sendPrompt() {
         val text = inputField.text.trim()
         if (text.isBlank()) return
+        val c = client ?: run { appendOutput("[Not connected — select an agent first]\n"); return }
         inputField.text = ""
         sendButton.isEnabled = false
         statusLabel.text = "Agent is thinking…"
@@ -119,7 +123,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
         uiScope.launch {
             try {
-                client!!.prompt(text).collect { event ->
+                c.prompt(text).collect { event ->
                     when (event) {
                         is AcpEvent.TextChunk -> {
                             if (firstChunk) { statusLabel.text = ""; firstChunk = false }
@@ -132,7 +136,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 }
             } catch (e: Exception) {
                 statusLabel.text = ""
-                appendOutput("\n[Error: ${e.message}]\n")
+                appendOutput("\n[Error: ${e.message ?: e.javaClass.simpleName}]\n")
             } finally {
                 sendButton.isEnabled = true
             }
