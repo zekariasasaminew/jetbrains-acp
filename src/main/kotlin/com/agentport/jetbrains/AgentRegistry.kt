@@ -2,7 +2,7 @@ package com.agentport.jetbrains
 
 object AgentRegistry {
 
-    private val KNOWN_AGENTS = listOf(
+    val knownAgents = listOf(
         Agent("claude",    "Claude Code",     "claude",    listOf("--acp")),
         Agent("gemini",    "Gemini CLI",      "gemini",    listOf("--acp")),
         Agent("opencode",  "OpenCode",        "opencode",  listOf("acp")),
@@ -18,10 +18,11 @@ object AgentRegistry {
         Agent("kiro",      "Kiro",            "kiro",      listOf("--acp")),
     )
 
-    fun detectAvailable(): List<Agent> = KNOWN_AGENTS.filter { isOnPath(it.command) }
+    fun detectAvailable(): List<Agent> = knownAgents.filter { isOnPath(it.command) }
 
-    fun isOnPath(command: String): Boolean {
-        val pathDirs = System.getenv("PATH")?.split(pathSeparator) ?: return false
+    fun isOnPath(command: String, pathOverride: String? = null): Boolean {
+        val pathValue = pathOverride ?: System.getenv("PATH") ?: return false
+        val pathDirs = pathValue.split(pathSeparator)
         return pathDirs.any { dir ->
             val base = java.io.File(dir, command)
             base.canExecute() || windowsExtensions.any { ext -> java.io.File(dir, "$command$ext").canExecute() }
