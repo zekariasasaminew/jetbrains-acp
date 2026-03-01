@@ -6,6 +6,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import kotlinx.coroutines.*
+import com.intellij.openapi.components.service
 import kotlinx.coroutines.swing.Swing
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -61,10 +62,18 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private fun refreshAgentList() {
+        val settings = project.service<PluginSettings>()
         val agents = AgentRegistry.detectAvailable()
         agentSelector.removeAllItems()
         agents.forEach { agentSelector.addItem(it) }
-        if (agents.isEmpty()) appendOutput("[No ACP agents found on PATH]")
+        if (agents.isEmpty()) {
+            appendOutput("[No ACP agents found on PATH]")
+            return
+        }
+        val defaultId = settings.defaultAgentId
+        if (defaultId.isNotEmpty()) {
+            agents.indexOfFirst { it.id == defaultId }.takeIf { it >= 0 }?.let { agentSelector.selectedIndex = it }
+        }
     }
 
     private fun reconnect() {
