@@ -62,7 +62,9 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private val entries = mutableListOf<Entry>()
-    private val streamBuf = StringBuilder()
+    private val streamBuf    = StringBuilder()
+    private val thoughtBuf   = StringBuilder()
+    private val toolItems    = mutableListOf<Pair<String, String>>() // (title, kind)
     private var streamingPane: ContentPane? = null
     private var renderJob: Job? = null
 
@@ -246,7 +248,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     // ── Chat actions ──────────────────────────────────────────────────────────────
     private fun clearChat() {
-        entries.clear(); streamBuf.clear(); streamingPane = null
+        entries.clear(); streamBuf.clear(); thoughtBuf.clear(); toolItems.clear(); streamingPane = null
         messageList.removeAll(); messageList.revalidate(); messageList.repaint()
     }
 
@@ -286,7 +288,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }, BorderLayout.CENTER)
         }
         messageList.add(streamRow)
-        streamBuf.clear(); scrollToBottom()
+        streamBuf.clear(); thoughtBuf.clear(); toolItems.clear(); scrollToBottom()
 
         uiScope.launch {
             try {
@@ -297,8 +299,17 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             streamBuf.append(event.text)
                             scheduleStreamUpdate()
                         }
-                        is AcpEvent.ToolCallStarted -> if (event.title.isNotBlank()) {
-                            streamBuf.append("\n*${event.title}*\n"); scheduleStreamUpdate()
+                        is AcpEvent.ThoughtChunk -> {
+                            statusLabel.text = "Thinking…"
+                            thoughtBuf.append(event.text)
+                            scheduleStreamUpdate()
+                        }
+                        is AcpEvent.ToolCall -> {
+                            if (event.title.isNotBlank()) {
+                                statusLabel.text = event.title
+                                toolItems += event.title to event.kind
+                                scheduleStreamUpdate()
+                            }
                         }
                         is AcpEvent.Done -> finaliseStream(streamRow)
                         is AcpEvent.AgentError -> { finaliseStream(streamRow); addMeta("Error: ${event.message}") }
@@ -316,20 +327,49 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         renderJob?.cancel()
         renderJob = uiScope.launch {
             delay(40)
-            streamingPane?.text = "<html><body>${esc(streamBuf.toString()).replace("\n","<br>")}</body></html>"
+            streamingPane?.setText(buildStreamHtml())
             scrollToBottom()
         }
     }
 
+    private fun buildStreamHtml(): String = buildString {
+        append("<html><body style='font-family:sans-serif;font-size:13px;color:${fgHex()}'>")
+        // Tool calls
+        for ((title, kind) in toolItems) {
+            append("<div style='color:${hex(mutedColor)};font-size:12px;margin:2px 0'>${kindIcon(kind)} ${esc(title)}</div>")
+        }
+        if (toolItems.isNotEmpty()) append("<div style='height:4px'></div>")
+        // Thoughts
+        if (thoughtBuf.isNotEmpty()) {
+            append("<div style='color:${hex(mutedColor)};font-style:italic;border-left:3px solid ${hex(mutedColor)};padding-left:8px;margin-bottom:6px;font-size:12px'>")
+            append("💭 ${esc(thoughtBuf.toString()).replace("\n", "<br>")}")
+            append("</div>")
+        }
+        // Main response
+        if (streamBuf.isNotEmpty()) append(md(streamBuf.toString()))
+        append("</body></html>")
+    }
+
+    private fun kindIcon(kind: String) = when (kind) {
+        "read"    -> "📄"
+        "edit"    -> "✏️"
+        "delete"  -> "🗑️"
+        "execute" -> "⚡"
+        "search"  -> "🔍"
+        "think"   -> "💭"
+        "fetch"   -> "🌐"
+        "move"    -> "↔️"
+        else      -> "🔧"
+    }
+
     private fun finaliseStream(streamRow: JPanel) {
         renderJob?.cancel()
-        val markdown = streamBuf.toString(); streamBuf.clear(); streamingPane = null
+        val markdown = streamBuf.toString()
+        streamBuf.clear(); thoughtBuf.clear(); toolItems.clear(); streamingPane = null
         if (markdown.isNotEmpty()) {
             val entry = Entry.Agent(markdown); entries.add(entry)
-            // Replace stream row content with rendered markdown
             val rowBg = agentRowBg
             val finalPane = buildContentPane(entry, rowBg)
-            // Find the content panel in the streamRow and replace the ContentPane
             val contentPanel = (streamRow.getComponent(1) as? JPanel) ?: return
             contentPanel.remove(contentPanel.componentCount - 1)
             contentPanel.add(finalPane, BorderLayout.CENTER)
