@@ -106,6 +106,14 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         toolTipText = "Clear conversation"
         addActionListener { clearChat() }
     }
+    private val browseButton = JButton("＋ Browse Registry").apply {
+        font = Font(Font.SANS_SERIF, Font.PLAIN, 11)
+        isFocusPainted = false
+        toolTipText = "Browse the ACP agent registry"
+        addActionListener {
+            RegistryBrowserDialog(project) { agent -> addAndConnect(agent) }.show()
+        }
+    }
 
     private val installedIds = AgentRegistry.detectAvailable().map { it.id }.toSet()
     private val agentSelector = JComboBox<Agent>().apply {
@@ -172,10 +180,14 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             BorderFactory.createMatteBorder(1, 0, 0, 0, JBColor(Color(0xDDDDDD), Color(0x3C3C3C))),
             BorderFactory.createEmptyBorder(8, 12, 8, 12)
         )
-        // Top row: agent selector + status + clear
+        // Top row: agent selector + browse + status + clear
         add(JPanel(BorderLayout(6, 0)).apply {
             background = JBColor.background()
-            add(agentSelector, BorderLayout.WEST)
+            add(JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                background = JBColor.background()
+                add(agentSelector)
+                add(browseButton)
+            }, BorderLayout.WEST)
             add(statusLabel, BorderLayout.CENTER)
             add(clearButton, BorderLayout.EAST)
         }, BorderLayout.NORTH)
@@ -278,7 +290,9 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun reconnect() {
         val agent = agentSelector.selectedItem as? Agent ?: return
-        if (agent.id !in installedIds) { addMeta("${agent.displayName} is not installed."); return }
+        val canLaunch = agent.id in installedIds ||
+                (agent.command == "npx" && AgentRegistry.isOnPath("npx"))
+        if (!canLaunch) { addMeta("${agent.displayName} is not installed."); return }
         val cwd = project.basePath ?: System.getProperty("user.home")
         client?.disconnect(); streamBuf.clear(); streamingPane = null
 
@@ -296,6 +310,15 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }
             catch (e: Exception) { addMeta("Failed to connect: ${e.message}") }
         }
+    }
+
+    /** Called from RegistryBrowserDialog when user clicks "Connect" on a registry agent. */
+    fun addAndConnect(agent: Agent) {
+        // Add to selector if not already present
+        val existing = (0 until agentSelector.itemCount).map { agentSelector.getItemAt(it) }
+        if (existing.none { it.id == agent.id }) agentSelector.addItem(agent)
+        agentSelector.selectedItem = agent
+        reconnect()
     }
 
     // ── Chat actions ──────────────────────────────────────────────────────────────
