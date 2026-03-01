@@ -1,32 +1,58 @@
 package com.agentport.jetbrains
 
+import com.intellij.openapi.components.service
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import kotlinx.coroutines.*
-import com.intellij.openapi.components.service
 import kotlinx.coroutines.swing.Swing
-import java.awt.BorderLayout
-import java.awt.Dimension
-import java.awt.Font
+import java.awt.*
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import javax.swing.*
+import javax.swing.text.*
 
 class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
 
-    private val outputArea = JBTextArea().apply {
+    // Output pane with styled document for visual message differentiation
+    private val outputPane = JTextPane().apply {
         isEditable = false
-        lineWrap = true
-        wrapStyleWord = true
-        font = Font(Font.MONOSPACED, Font.PLAIN, 13)
         background = JBColor.background()
+        font = Font(Font.MONOSPACED, Font.PLAIN, 13)
+        border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
+    }
+    private val doc: StyledDocument = outputPane.styledDocument
+
+    private val userLabelStyle: Style = doc.addStyle("userLabel", null).also {
+        StyleConstants.setForeground(it, JBColor(Color(0x2470B3), Color(0x589DF6)))
+        StyleConstants.setBold(it, true)
+    }
+    private val bodyStyle: Style = doc.addStyle("body", null).also {
+        StyleConstants.setForeground(it, JBColor.foreground())
+    }
+    private val agentStyle: Style = doc.addStyle("agent", null).also {
+        StyleConstants.setForeground(it, JBColor.foreground())
+    }
+    private val metaStyle: Style = doc.addStyle("meta", null).also {
+        StyleConstants.setForeground(it, JBColor.GRAY)
+        StyleConstants.setItalic(it, true)
     }
 
+    // Enter = send, Shift+Enter = new line
     private val inputField = JTextArea(3, 0).apply {
         lineWrap = true
         wrapStyleWord = true
         font = Font(Font.MONOSPACED, Font.PLAIN, 13)
+        addKeyListener(object : KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
+                    e.consume()
+                    sendPrompt()
+                }
+            }
+        })
     }
 
     private val sendButton = JButton("Send").apply {
@@ -42,6 +68,13 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val statusLabel = JLabel("").apply {
         font = Font(Font.SANS_SERIF, Font.ITALIC, 12)
         foreground = JBColor.GRAY
+        border = BorderFactory.createEmptyBorder(2, 6, 2, 0)
+    }
+
+    private val hintLabel = JLabel("Enter to send  ·  Shift+Enter for new line").apply {
+        font = Font(Font.SANS_SERIF, Font.PLAIN, 11)
+        foreground = JBColor.GRAY
+        border = BorderFactory.createEmptyBorder(2, 6, 2, 0)
     }
 
     private val uiScope = CoroutineScope(Dispatchers.Swing + SupervisorJob())
@@ -50,16 +83,17 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     init {
         setContent(buildLayout())
         refreshAgentList()
-        // Add listener AFTER refreshAgentList so initial population doesn't trigger reconnect
         agentSelector.addActionListener { reconnect() }
-        // Connect to whichever agent is pre-selected
         reconnect()
     }
 
     private fun buildLayout(): JPanel = JPanel(BorderLayout()).apply {
-        add(JBScrollPane(outputArea), BorderLayout.CENTER)
+        add(JBScrollPane(outputPane), BorderLayout.CENTER)
         add(JPanel(BorderLayout()).apply {
-            add(statusLabel, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply {
+                add(statusLabel, BorderLayout.WEST)
+                add(hintLabel, BorderLayout.EAST)
+            }, BorderLayout.NORTH)
             add(buildInputBar(), BorderLayout.CENTER)
         }, BorderLayout.SOUTH)
     }
@@ -78,7 +112,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         agentSelector.removeAllItems()
         agents.forEach { agentSelector.addItem(it) }
         if (agents.isEmpty()) {
-            appendOutput("[No ACP agents found on PATH]")
+            appendMeta("[No ACP agents found on PATH]\n")
             return
         }
         val defaultId = settings.defaultAgentId
@@ -103,10 +137,10 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         uiScope.launch {
             try {
                 client!!.connect(agent, cwd!!)
-                appendOutput("[Connected to ${agent.displayName}]")
+                appendMeta("[Connected to ${agent.displayName}]\n")
                 sendButton.isEnabled = true
             } catch (e: Exception) {
-                appendOutput("[Failed to connect: ${e.message}]")
+                appendMeta("[Failed to connect: ${e.message}]\n")
             }
         }
     }
@@ -114,37 +148,63 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private fun sendPrompt() {
         val text = inputField.text.trim()
         if (text.isBlank()) return
-        val c = client ?: run { appendOutput("[Not connected — select an agent first]\n"); return }
+        val c = client ?: run { appendMeta("[Not connected — select an agent first]\n"); return }
         inputField.text = ""
         sendButton.isEnabled = false
         statusLabel.text = "Agent is thinking…"
-        appendOutput("\nYou: $text\n")
+
+        // Inject currently open file as silent context prefix
+        val openFile = FileEditorManager.getInstance(project).selectedEditor?.file?.path
+        val promptText = if (openFile != null) "Context: currently open file is $openFile\n\n$text" else text
+
+        appendUserMessage(text)
         var firstChunk = true
 
         uiScope.launch {
             try {
-                c.prompt(text).collect { event ->
+                c.prompt(promptText).collect { event ->
                     when (event) {
                         is AcpEvent.TextChunk -> {
-                            if (firstChunk) { statusLabel.text = ""; firstChunk = false }
-                            appendOutput(event.text)
+                            if (firstChunk) {
+                                statusLabel.text = ""
+                                appendText("\n", agentStyle)
+                                firstChunk = false
+                            }
+                            appendText(event.text, agentStyle)
                         }
-                        is AcpEvent.ToolCallStarted -> appendOutput("\n[${event.title}]\n")
-                        is AcpEvent.Done -> { statusLabel.text = ""; appendOutput("\n") }
-                        is AcpEvent.AgentError -> { statusLabel.text = ""; appendOutput("\n[Error: ${event.message}]\n") }
+                        is AcpEvent.ToolCallStarted -> {
+                            if (event.title.isNotBlank()) appendMeta("\n[${event.title}]\n")
+                        }
+                        is AcpEvent.Done -> {
+                            statusLabel.text = ""
+                            appendText("\n", agentStyle)
+                        }
+                        is AcpEvent.AgentError -> {
+                            statusLabel.text = ""
+                            appendMeta("\n[Error: ${event.message}]\n")
+                        }
                     }
                 }
             } catch (e: Exception) {
                 statusLabel.text = ""
-                appendOutput("\n[Error: ${e.message ?: e.javaClass.simpleName}]\n")
+                appendMeta("\n[Error: ${e.message ?: e.javaClass.simpleName}]\n")
             } finally {
                 sendButton.isEnabled = true
             }
         }
     }
 
-    private fun appendOutput(text: String) {
-        outputArea.append(text)
-        outputArea.caretPosition = outputArea.document.length
+    private fun appendUserMessage(text: String) {
+        appendText("\nYou  ", userLabelStyle)
+        appendText("$text\n", bodyStyle)
+    }
+
+    private fun appendMeta(text: String) = appendText(text, metaStyle)
+
+    private fun appendText(text: String, style: Style) {
+        try {
+            doc.insertString(doc.length, text, style)
+            outputPane.caretPosition = doc.length
+        } catch (_: BadLocationException) {}
     }
 }
