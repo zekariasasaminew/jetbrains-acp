@@ -12,6 +12,7 @@ import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonElement
+import java.io.File
 import java.nio.file.Paths
 
 typealias ProcessFactory = (command: List<String>, cwd: String) -> Process
@@ -165,9 +166,17 @@ class AcpClient(
     private val activeTerminals = mutableMapOf<String, Process>()
 
     companion object {
+        private val isWindows = System.getProperty("os.name", "").startsWith("Windows")
+
         val defaultProcessFactory: ProcessFactory = { command, cwd ->
-            ProcessBuilder(command)
-                .directory(java.io.File(cwd))
+            // On Windows, bare command names (.cmd/.bat) require cmd /c to be resolved by the shell
+            val actualCommand = if (isWindows && !command.first().contains(File.separatorChar)) {
+                listOf("cmd", "/c") + command
+            } else {
+                command
+            }
+            ProcessBuilder(actualCommand)
+                .directory(File(cwd))
                 .redirectInput(ProcessBuilder.Redirect.PIPE)
                 .redirectOutput(ProcessBuilder.Redirect.PIPE)
                 .redirectError(ProcessBuilder.Redirect.PIPE)
