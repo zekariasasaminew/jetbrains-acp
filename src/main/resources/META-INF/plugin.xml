@@ -4,16 +4,34 @@
     <vendor url="https://github.com/zekariasasaminew/jetbrains-acp">AgentPort</vendor>
 
     <description><![CDATA[
-        Universal <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> client for JetBrains IDEs.<br><br>
-        Connect any ACP-compatible AI agent — Claude Code, Gemini CLI, OpenCode, Copilot CLI, OpenAI Codex, and more —
-        directly inside your IDE. Agent-proposed file changes appear in the native IntelliJ diff viewer for review before
-        being applied.
+        Universal <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> client for all JetBrains IDEs &mdash;
+        free, open source, no subscription required.<br><br>
+        Connect any ACP-compatible AI coding agent inside IntelliJ IDEA, PyCharm, WebStorm, GoLand, and every other JetBrains IDE.
+        Works on <b>IDE 2024.2+</b>, no JetBrains AI subscription needed.<br><br>
+        <b>Supported agents:</b> Claude Code, Gemini CLI, GitHub Copilot CLI, OpenAI Codex, OpenCode, Goose, Aider, and 15+ more<br><br>
+        <b>Features:</b><br>
+        <ul>
+          <li><b>ACP Registry browser</b> &mdash; one-click connect to 20+ agents; npx agents launch without pre-installation</li>
+          <li><b>Agent thoughts &amp; tool calls</b> &mdash; see what the agent is thinking and every tool it calls, live</li>
+          <li><b>Model selector</b> &mdash; switch AI models mid-session</li>
+          <li><b>Streaming responses</b> &mdash; output renders as it arrives</li>
+          <li><b>Native Swing UI</b> &mdash; no Electron, no JCEF</li>
+          <li><b>File edit support</b> &mdash; agent changes applied directly to your project</li>
+        </ul>
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>0.2.0</b><br>
+        <ul>
+          <li>ACP Registry browser</li>
+          <li>Agent thoughts and tool call visibility</li>
+          <li>Model selector</li>
+          <li>VS Code-style chat UI polish</li>
+        </ul>
         <b>0.1.0</b><br>
-        Initial release. Auto-detects ACP agents on PATH, streams responses in a native Swing panel,
-        shows diffs in IntelliJ's built-in viewer, and supports per-agent path overrides in settings.
+        <ul>
+          <li>Initial release &mdash; auto-detects ACP agents on PATH, streaming responses, per-agent path overrides</li>
+        </ul>
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
@@ -36,3 +54,4 @@
                 displayName="AgentPort"/>
     </extensions>
 </idea-plugin>
+
