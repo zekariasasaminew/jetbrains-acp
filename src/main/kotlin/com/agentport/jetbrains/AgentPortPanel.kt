@@ -12,6 +12,7 @@ import java.awt.*
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import javax.swing.*
+import javax.swing.ScrollPaneConstants.*
 import javax.swing.text.html.HTMLEditorKit
 
 // ── Avatar circle — painted like VS Code's 24px avatar ──────────────────────
@@ -38,6 +39,8 @@ private class AvatarCircle(private val letter: String, private val bg: Color) : 
 private class ContentPane : JEditorPane() {
     init { contentType = "text/html"; isEditable = false; isOpaque = false; border = null }
     override fun getScrollableTracksViewportWidth() = true
+    // Report a tiny preferred width so BoxLayout never forces the row wider than the viewport
+    override fun getPreferredSize(): Dimension = Dimension(10, super.getPreferredSize().height)
 }
 
 class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
@@ -59,7 +62,9 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     }
 
     private val entries = mutableListOf<Entry>()
-    private val streamBuf = StringBuilder()
+    private val streamBuf    = StringBuilder()
+    private val thoughtBuf   = StringBuilder()
+    private val toolItems    = mutableListOf<Pair<String, String>>() // (title, kind)
     private var streamingPane: ContentPane? = null
     private var renderJob: Job? = null
 
@@ -71,6 +76,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val scrollPane = JBScrollPane(messageList).apply {
         border = BorderFactory.createEmptyBorder()
         verticalScrollBar.unitIncrement = 16
+        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
     }
 
     // ── Input area ───────────────────────────────────────────────────────────────
@@ -124,6 +130,26 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         font = Font(Font.SANS_SERIF, Font.PLAIN, 10); foreground = mutedColor
     }
 
+    // Model selector — populated dynamically from ACP session after connect
+    private val modelIds = mutableListOf<String>() // parallel to modelSelector items
+    private val modelSelector = JComboBox<String>().apply {
+        font = Font(Font.SANS_SERIF, Font.PLAIN, 11)
+        toolTipText = "Select model"
+        isVisible = false
+        addActionListener {
+            val idx = selectedIndex.takeIf { it >= 0 } ?: return@addActionListener
+            val id = modelIds.getOrNull(idx) ?: return@addActionListener
+            uiScope.launch { client?.setModel(id) }
+        }
+    }
+    private val modelRow = JPanel(BorderLayout(4, 0)).apply {
+        background = JBColor.background()
+        isVisible = false
+        add(JLabel("Model:").apply { font = Font(Font.SANS_SERIF, Font.PLAIN, 11); foreground = mutedColor }, BorderLayout.WEST)
+        add(modelSelector, BorderLayout.CENTER)
+    }
+
+    private var currentAgentName = "Agent"  // updated on successful connect
     private val uiScope = CoroutineScope(Dispatchers.Swing + SupervisorJob())
     private var client: AcpClient? = null
 
@@ -153,6 +179,8 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(statusLabel, BorderLayout.CENTER)
             add(clearButton, BorderLayout.EAST)
         }, BorderLayout.NORTH)
+        // Middle row: model selector (hidden until agent supports it)
+        add(modelRow, BorderLayout.CENTER)
         // Input row: text + send
         add(JPanel(BorderLayout(6, 0)).apply {
             background = JBColor.background()
@@ -162,7 +190,26 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 add(sendButton, BorderLayout.NORTH)
                 add(hintLabel, BorderLayout.SOUTH)
             }, BorderLayout.EAST)
-        }, BorderLayout.CENTER)
+        }, BorderLayout.SOUTH)
+    }
+
+    private fun refreshModelSelector(c: AcpClient) {
+        if (!c.isModelsSupported()) { modelRow.isVisible = false; return }
+        val models = c.getAvailableModels()
+        if (models.isEmpty()) { modelRow.isVisible = false; return }
+        val current = c.getCurrentModelId()
+        val listeners = modelSelector.actionListeners.toList()
+        listeners.forEach { modelSelector.removeActionListener(it) }
+        modelSelector.removeAllItems()
+        modelIds.clear()
+        models.forEach { m ->
+            modelSelector.addItem(m.name.ifBlank { m.modelId.value })
+            modelIds += m.modelId.value
+        }
+        current?.let { id -> modelIds.indexOf(id).takeIf { it >= 0 }?.let { modelSelector.selectedIndex = it } }
+        listeners.forEach { modelSelector.addActionListener(it) }
+        modelRow.isVisible = true
+        modelSelector.isVisible = true
     }
 
     // ── Message row builder (mirrors .interactive-item-container) ────────────────
@@ -203,18 +250,23 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         background = rowBg
         val kit = HTMLEditorKit()
         kit.styleSheet.apply {
-            addRule("body{font-family:sans-serif;font-size:13px;margin:0;padding:0;color:${fgHex()}}")
-            addRule("pre{background:${hex(codeBg)};padding:10px;margin:4px 0;white-space:pre-wrap;font-family:monospace}")
-            addRule("code{font-family:monospace;background:${hex(codeBg)};padding:1px 3px}")
+            addRule("body{font-family:sans-serif;font-size:13px;margin:0;padding:0;color:${fgHex()};line-height:1.5}")
+            addRule("p{margin:0 0 6px 0}")
+            addRule("ul,ol{margin:4px 0 4px 20px;padding:0}")
+            addRule("li{margin:2px 0}")
+            addRule("pre{background:${hex(codeBg)};padding:10px 12px;margin:6px 0;white-space:pre-wrap;font-family:monospace;font-size:12px;border-radius:4px}")
+            addRule("code{font-family:monospace;font-size:12px;background:${hex(codeBg)};padding:1px 4px;border-radius:2px}")
             addRule("pre code{background:transparent;padding:0}")
-            addRule("p{margin:2px 0}")
+            addRule("blockquote{border-left:3px solid ${hex(mutedColor)};margin:4px 0;padding-left:8px;color:${hex(mutedColor)}}")
+            addRule("b,strong{font-weight:bold}")
+            addRule("i,em{font-style:italic}")
         }
         editorKit = kit
-        text = when (entry) {
+        setText(when (entry) {
             is Entry.User  -> "<html><body>${esc(entry.text).replace("\n","<br>")}</body></html>"
             is Entry.Agent -> "<html><body>${md(entry.markdown)}</body></html>"
-            is Entry.Meta  -> "<html><body><i style='color:${hex(mutedColor)}'>${esc(entry.text)}</i></body></html>"
-        }
+            is Entry.Meta  -> "<html><body><span style='color:${hex(mutedColor)};font-size:12px'>${esc(entry.text)}</span></body></html>"
+        })
     }
 
     // ── Agent wiring ──────────────────────────────────────────────────────────────
@@ -235,14 +287,20 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             onFileWrite = { path, c -> DiffHandler(project).showAndApply(path, c) },
         )
         uiScope.launch {
-            try { client!!.connect(agent, cwd!!); addMeta("Connected to ${agent.displayName}"); sendButton.isEnabled = true }
+            try {
+                client!!.connect(agent, cwd!!)
+                currentAgentName = agent.displayName
+                addMeta("Connected to ${agent.displayName}")
+                sendButton.isEnabled = true
+                refreshModelSelector(client!!)
+            }
             catch (e: Exception) { addMeta("Failed to connect: ${e.message}") }
         }
     }
 
     // ── Chat actions ──────────────────────────────────────────────────────────────
     private fun clearChat() {
-        entries.clear(); streamBuf.clear(); streamingPane = null
+        entries.clear(); streamBuf.clear(); thoughtBuf.clear(); toolItems.clear(); streamingPane = null
         messageList.removeAll(); messageList.revalidate(); messageList.repaint()
     }
 
@@ -277,12 +335,12 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             }, BorderLayout.WEST)
             add(JPanel(BorderLayout(0, 4)).apply {
                 background = rowBg; isOpaque = false
-                add(JLabel("Agent").apply { font = Font(Font.SANS_SERIF, Font.BOLD, 12); foreground = agentAvatarColor }, BorderLayout.NORTH)
+                add(JLabel(currentAgentName).apply { font = Font(Font.SANS_SERIF, Font.BOLD, 12); foreground = agentAvatarColor }, BorderLayout.NORTH)
                 add(sPane, BorderLayout.CENTER)
             }, BorderLayout.CENTER)
         }
         messageList.add(streamRow)
-        streamBuf.clear(); scrollToBottom()
+        streamBuf.clear(); thoughtBuf.clear(); toolItems.clear(); scrollToBottom()
 
         uiScope.launch {
             try {
@@ -293,8 +351,17 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
                             streamBuf.append(event.text)
                             scheduleStreamUpdate()
                         }
-                        is AcpEvent.ToolCallStarted -> if (event.title.isNotBlank()) {
-                            streamBuf.append("\n*${event.title}*\n"); scheduleStreamUpdate()
+                        is AcpEvent.ThoughtChunk -> {
+                            statusLabel.text = "Thinking…"
+                            thoughtBuf.append(event.text)
+                            scheduleStreamUpdate()
+                        }
+                        is AcpEvent.ToolCall -> {
+                            if (event.title.isNotBlank()) {
+                                statusLabel.text = event.title
+                                toolItems += event.title to event.kind
+                                scheduleStreamUpdate()
+                            }
                         }
                         is AcpEvent.Done -> finaliseStream(streamRow)
                         is AcpEvent.AgentError -> { finaliseStream(streamRow); addMeta("Error: ${event.message}") }
@@ -312,20 +379,55 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         renderJob?.cancel()
         renderJob = uiScope.launch {
             delay(40)
-            streamingPane?.text = "<html><body>${esc(streamBuf.toString()).replace("\n","<br>")}</body></html>"
+            streamingPane?.setText(buildStreamHtml())
             scrollToBottom()
         }
     }
 
+    private fun buildStreamHtml(): String = buildString {
+        append("<html><body style='font-family:sans-serif;font-size:13px;color:${fgHex()};line-height:1.5;margin:0;padding:0'>")
+        // Tool calls
+        for ((title, kind) in toolItems) {
+            append("<div style='color:${hex(mutedColor)};font-size:12px;margin:2px 0'>${kindIcon(kind)}&nbsp;${esc(title)}</div>")
+        }
+        if (toolItems.isNotEmpty() && (thoughtBuf.isNotEmpty() || streamBuf.isNotEmpty())) {
+            append("<div style='height:6px'></div>")
+        }
+        // Thoughts
+        if (thoughtBuf.isNotEmpty()) {
+            append("<div style='color:${hex(mutedColor)};font-style:italic;border-left:3px solid ${hex(mutedColor)};padding-left:8px;margin-bottom:8px;font-size:12px'>")
+            append("💭&nbsp;${esc(thoughtBuf.toString()).replace("\n", "<br>")}")
+            append("</div>")
+        }
+        // Main response
+        if (streamBuf.isNotEmpty()) append(md(streamBuf.toString()))
+        else if (toolItems.isEmpty() && thoughtBuf.isEmpty()) {
+            // Still waiting for first content
+            append("<span style='color:${hex(mutedColor)};font-style:italic'>●&nbsp;●&nbsp;●</span>")
+        }
+        append("</body></html>")
+    }
+
+    private fun kindIcon(kind: String) = when (kind) {
+        "read"    -> "📄"
+        "edit"    -> "✏️"
+        "delete"  -> "🗑️"
+        "execute" -> "⚡"
+        "search"  -> "🔍"
+        "think"   -> "💭"
+        "fetch"   -> "🌐"
+        "move"    -> "↔️"
+        else      -> "🔧"
+    }
+
     private fun finaliseStream(streamRow: JPanel) {
         renderJob?.cancel()
-        val markdown = streamBuf.toString(); streamBuf.clear(); streamingPane = null
+        val markdown = streamBuf.toString()
+        streamBuf.clear(); thoughtBuf.clear(); toolItems.clear(); streamingPane = null
         if (markdown.isNotEmpty()) {
             val entry = Entry.Agent(markdown); entries.add(entry)
-            // Replace stream row content with rendered markdown
             val rowBg = agentRowBg
             val finalPane = buildContentPane(entry, rowBg)
-            // Find the content panel in the streamRow and replace the ContentPane
             val contentPanel = (streamRow.getComponent(1) as? JPanel) ?: return
             contentPanel.remove(contentPanel.componentCount - 1)
             contentPanel.add(finalPane, BorderLayout.CENTER)
@@ -344,7 +446,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     // ── Markdown → HTML ───────────────────────────────────────────────────────────
     private fun md(text: String): String {
-        val parts = text.split(Regex("```(?:\\w*)\\n?"))
+        val parts = text.split(Regex("```(?:\\w*)\n?"))
         return buildString {
             parts.forEachIndexed { i, part ->
                 if (i % 2 == 0) append(inlineMd(part))
@@ -353,12 +455,20 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
-    private fun inlineMd(s: String) = esc(s)
-        .replace(Regex("`([^`\n]+)`"))        { "<code>${it.groupValues[1]}</code>" }
-        .replace(Regex("\\*\\*(.+?)\\*\\*"))  { "<b>${it.groupValues[1]}</b>" }
-        .replace(Regex("\\*(.+?)\\*"))        { "<i>${it.groupValues[1]}</i>" }
-        .replace(Regex("(?m)^#{1,3} (.+)$")) { "<b>${it.groupValues[1]}</b><br>" }
-        .replace("\n", "<br>")
+    private fun inlineMd(s: String): String {
+        // Split on blank lines → paragraphs
+        val paragraphs = s.split(Regex("\n{2,}"))
+        return paragraphs.joinToString("") { para ->
+            val rendered = esc(para.trim())
+                .replace(Regex("`([^`\n]+)`"))       { "<code>${it.groupValues[1]}</code>" }
+                .replace(Regex("\\*\\*(.+?)\\*\\*")) { "<b>${it.groupValues[1]}</b>" }
+                .replace(Regex("\\*(.+?)\\*"))        { "<i>${it.groupValues[1]}</i>" }
+                .replace(Regex("(?m)^#{1,3} (.+)$")) { "<b>${it.groupValues[1]}</b>" }
+                .replace(Regex("(?m)^> (.+)$"))       { "<blockquote>${it.groupValues[1]}</blockquote>" }
+                .replace("\n", "<br>")
+            "<p>$rendered</p>"
+        }
+    }
 
     private fun esc(s: String) = s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
     private fun hex(c: Color) = "#%02x%02x%02x".format(c.red, c.green, c.blue)

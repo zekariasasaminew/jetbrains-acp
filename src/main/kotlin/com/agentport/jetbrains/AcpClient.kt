@@ -2,8 +2,7 @@ package com.agentport.jetbrains
 
 import com.agentclientprotocol.client.*
 import com.agentclientprotocol.common.*
-import com.agentclientprotocol.model.*
-import com.agentclientprotocol.protocol.Protocol
+import com.agentclientprotocol.model.*import com.agentclientprotocol.protocol.Protocol
 import com.agentclientprotocol.transport.StdioTransport
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
@@ -79,7 +78,15 @@ class AcpClient(
                             val chunk = update.content
                             if (chunk is ContentBlock.Text) emit(AcpEvent.TextChunk(chunk.text))
                         }
-                        is SessionUpdate.ToolCallUpdate -> emit(AcpEvent.ToolCallStarted(update.title ?: ""))
+                        is SessionUpdate.AgentThoughtChunk -> {
+                            val chunk = update.content
+                            if (chunk is ContentBlock.Text) emit(AcpEvent.ThoughtChunk(chunk.text))
+                        }
+                        is SessionUpdate.ToolCallUpdate -> {
+                            val title = update.title ?: ""
+                            val kind  = update.kind?.name?.lowercase() ?: "other"
+                            if (title.isNotBlank() || kind != "other") emit(AcpEvent.ToolCall(title, kind))
+                        }
                         else -> Unit
                     }
                 }
@@ -88,8 +95,12 @@ class AcpClient(
         }
     }
 
-    fun disconnect() {
-        scope.cancel()
+    fun isModelsSupported(): Boolean = session?.modelsSupported ?: false
+    fun getAvailableModels(): List<ModelInfo> = session?.availableModels ?: emptyList()
+    fun getCurrentModelId(): String? = session?.currentModel?.value?.value
+    suspend fun setModel(modelId: String) { session?.setModel(ModelId(modelId)) }
+
+    fun disconnect() {        scope.cancel()
         process?.destroyForcibly()
         process = null
         session = null
