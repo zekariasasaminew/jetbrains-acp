@@ -130,6 +130,25 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         font = Font(Font.SANS_SERIF, Font.PLAIN, 10); foreground = mutedColor
     }
 
+    // Model selector — populated dynamically from ACP session after connect
+    private val modelIds = mutableListOf<String>() // parallel to modelSelector items
+    private val modelSelector = JComboBox<String>().apply {
+        font = Font(Font.SANS_SERIF, Font.PLAIN, 11)
+        toolTipText = "Select model"
+        isVisible = false
+        addActionListener {
+            val idx = selectedIndex.takeIf { it >= 0 } ?: return@addActionListener
+            val id = modelIds.getOrNull(idx) ?: return@addActionListener
+            uiScope.launch { client?.setModel(id) }
+        }
+    }
+    private val modelRow = JPanel(BorderLayout(4, 0)).apply {
+        background = JBColor.background()
+        isVisible = false
+        add(JLabel("Model:").apply { font = Font(Font.SANS_SERIF, Font.PLAIN, 11); foreground = mutedColor }, BorderLayout.WEST)
+        add(modelSelector, BorderLayout.CENTER)
+    }
+
     private val uiScope = CoroutineScope(Dispatchers.Swing + SupervisorJob())
     private var client: AcpClient? = null
 
@@ -159,6 +178,8 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             add(statusLabel, BorderLayout.CENTER)
             add(clearButton, BorderLayout.EAST)
         }, BorderLayout.NORTH)
+        // Middle row: model selector (hidden until agent supports it)
+        add(modelRow, BorderLayout.CENTER)
         // Input row: text + send
         add(JPanel(BorderLayout(6, 0)).apply {
             background = JBColor.background()
@@ -168,7 +189,26 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
                 add(sendButton, BorderLayout.NORTH)
                 add(hintLabel, BorderLayout.SOUTH)
             }, BorderLayout.EAST)
-        }, BorderLayout.CENTER)
+        }, BorderLayout.SOUTH)
+    }
+
+    private fun refreshModelSelector(c: AcpClient) {
+        if (!c.isModelsSupported()) { modelRow.isVisible = false; return }
+        val models = c.getAvailableModels()
+        if (models.isEmpty()) { modelRow.isVisible = false; return }
+        val current = c.getCurrentModelId()
+        val listeners = modelSelector.actionListeners.toList()
+        listeners.forEach { modelSelector.removeActionListener(it) }
+        modelSelector.removeAllItems()
+        modelIds.clear()
+        models.forEach { m ->
+            modelSelector.addItem(m.name.ifBlank { m.modelId.value })
+            modelIds += m.modelId.value
+        }
+        current?.let { id -> modelIds.indexOf(id).takeIf { it >= 0 }?.let { modelSelector.selectedIndex = it } }
+        listeners.forEach { modelSelector.addActionListener(it) }
+        modelRow.isVisible = true
+        modelSelector.isVisible = true
     }
 
     // ── Message row builder (mirrors .interactive-item-container) ────────────────
@@ -241,7 +281,12 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
             onFileWrite = { path, c -> DiffHandler(project).showAndApply(path, c) },
         )
         uiScope.launch {
-            try { client!!.connect(agent, cwd!!); addMeta("Connected to ${agent.displayName}"); sendButton.isEnabled = true }
+            try {
+                client!!.connect(agent, cwd!!)
+                addMeta("Connected to ${agent.displayName}")
+                sendButton.isEnabled = true
+                refreshModelSelector(client!!)
+            }
             catch (e: Exception) { addMeta("Failed to connect: ${e.message}") }
         }
     }
