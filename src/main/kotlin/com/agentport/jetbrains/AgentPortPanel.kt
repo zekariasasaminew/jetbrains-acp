@@ -12,6 +12,7 @@ import java.awt.*
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import javax.swing.*
+import javax.swing.ScrollPaneConstants.*
 import javax.swing.text.html.HTMLEditorKit
 
 // ── Avatar circle — painted like VS Code's 24px avatar ──────────────────────
@@ -38,6 +39,8 @@ private class AvatarCircle(private val letter: String, private val bg: Color) : 
 private class ContentPane : JEditorPane() {
     init { contentType = "text/html"; isEditable = false; isOpaque = false; border = null }
     override fun getScrollableTracksViewportWidth() = true
+    // Report a tiny preferred width so BoxLayout never forces the row wider than the viewport
+    override fun getPreferredSize(): Dimension = Dimension(10, super.getPreferredSize().height)
 }
 
 class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true, true) {
@@ -71,6 +74,7 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
     private val scrollPane = JBScrollPane(messageList).apply {
         border = BorderFactory.createEmptyBorder()
         verticalScrollBar.unitIncrement = 16
+        horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
     }
 
     // ── Input area ───────────────────────────────────────────────────────────────
