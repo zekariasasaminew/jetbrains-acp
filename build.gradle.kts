@@ -44,7 +44,7 @@ intellijPlatform {
         changeNotes = "Initial release."
 
         ideaVersion {
-            sinceBuild = "243"
+            sinceBuild = "242"
         }
 
         vendor {
