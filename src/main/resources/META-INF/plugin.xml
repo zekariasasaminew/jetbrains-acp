@@ -1,0 +1,32 @@
+<idea-plugin>
+    <id>com.agentport.jetbrains-acp</id>
+    <name>AgentPort</name>
+    <vendor url="https://github.com/zekariasasaminew/jetbrains-acp">AgentPort</vendor>
+
+    <description><![CDATA[
+        Universal <a href="https://agentclientprotocol.com">ACP (Agent Client Protocol)</a> client for JetBrains IDEs.<br><br>
+        Connect any ACP-compatible AI agent — Claude Code, Gemini CLI, OpenCode, Copilot CLI, OpenAI Codex, and more —
+        directly inside your IDE. Agent-proposed file changes appear in the native IntelliJ diff viewer for review before
+        being applied.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow
+                id="AgentPort"
+                displayName="AgentPort"
+                anchor="right"
+                icon="/icons/agentport.svg"
+                factoryClass="com.agentport.jetbrains.AgentPortWindowFactory"/>
+
+        <applicationService
+                serviceImplementation="com.agentport.jetbrains.PluginSettings"/>
+
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.agentport.jetbrains.PluginSettingsConfigurable"
+                id="com.agentport.settings"
+                displayName="AgentPort"/>
+    </extensions>
+</idea-plugin>
