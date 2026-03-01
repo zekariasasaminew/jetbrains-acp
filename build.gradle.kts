@@ -12,14 +12,14 @@ kotlin {
 
 repositories {
     mavenCentral()
-    maven("https://oss.sonatype.org/content/repositories/snapshots/")
     intellijPlatform {
         defaultRepositories()
     }
 }
 
 dependencies {
-    implementation("com.agentclientprotocol:acp:0.3.0-SNAPSHOT")
+    implementation("com.agentclientprotocol:acp:0.16.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
 
     intellijPlatform {
         intellijIdeaCommunity("2024.3")
