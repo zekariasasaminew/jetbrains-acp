@@ -39,6 +39,11 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         }
     }
 
+    private val statusLabel = JLabel("").apply {
+        font = Font(Font.SANS_SERIF, Font.ITALIC, 12)
+        foreground = JBColor.GRAY
+    }
+
     private val uiScope = CoroutineScope(Dispatchers.Swing + SupervisorJob())
     private var client: AcpClient? = null
 
@@ -50,7 +55,10 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
 
     private fun buildLayout(): JPanel = JPanel(BorderLayout()).apply {
         add(JBScrollPane(outputArea), BorderLayout.CENTER)
-        add(buildInputBar(), BorderLayout.SOUTH)
+        add(JPanel(BorderLayout()).apply {
+            add(statusLabel, BorderLayout.NORTH)
+            add(buildInputBar(), BorderLayout.CENTER)
+        }, BorderLayout.SOUTH)
     }
 
     private fun buildInputBar(): JPanel = JPanel(BorderLayout()).apply {
@@ -105,19 +113,25 @@ class AgentPortPanel(private val project: Project) : SimpleToolWindowPanel(true,
         if (text.isBlank()) return
         inputField.text = ""
         sendButton.isEnabled = false
+        statusLabel.text = "Agent is thinking…"
         appendOutput("\nYou: $text\n")
+        var firstChunk = true
 
         uiScope.launch {
             try {
                 client!!.prompt(text).collect { event ->
                     when (event) {
-                        is AcpEvent.TextChunk -> appendOutput(event.text)
+                        is AcpEvent.TextChunk -> {
+                            if (firstChunk) { statusLabel.text = ""; firstChunk = false }
+                            appendOutput(event.text)
+                        }
                         is AcpEvent.ToolCallStarted -> appendOutput("\n[${event.title}]\n")
-                        is AcpEvent.Done -> appendOutput("\n")
-                        is AcpEvent.AgentError -> appendOutput("\n[Error: ${event.message}]\n")
+                        is AcpEvent.Done -> { statusLabel.text = ""; appendOutput("\n") }
+                        is AcpEvent.AgentError -> { statusLabel.text = ""; appendOutput("\n[Error: ${event.message}]\n") }
                     }
                 }
             } catch (e: Exception) {
+                statusLabel.text = ""
                 appendOutput("\n[Error: ${e.message}]\n")
             } finally {
                 sendButton.isEnabled = true
