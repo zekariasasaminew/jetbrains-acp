@@ -79,7 +79,15 @@ class AcpClient(
                             val chunk = update.content
                             if (chunk is ContentBlock.Text) emit(AcpEvent.TextChunk(chunk.text))
                         }
-                        is SessionUpdate.ToolCallUpdate -> emit(AcpEvent.ToolCallStarted(update.title ?: ""))
+                        is SessionUpdate.AgentThoughtChunk -> {
+                            val chunk = update.content
+                            if (chunk is ContentBlock.Text) emit(AcpEvent.ThoughtChunk(chunk.text))
+                        }
+                        is SessionUpdate.ToolCallUpdate -> {
+                            val title = update.title ?: ""
+                            val kind  = update.kind?.name?.lowercase() ?: "other"
+                            if (title.isNotBlank() || kind != "other") emit(AcpEvent.ToolCall(title, kind))
+                        }
                         else -> Unit
                     }
                 }
